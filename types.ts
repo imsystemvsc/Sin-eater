@@ -73,6 +73,7 @@ export interface Particle {
   life: number;
   color: string;
   size: number;
+  markedForDeletion?: boolean;
 }
 
 export enum PowerUpType {
