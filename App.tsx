@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import Game from './components/Game';
-import { GameState, SinType } from './types';
-import { CANVAS_WIDTH, PLAYER_MAX_HP, PLAYER_MAX_AMMO, WAVE_DURATION } from './constants';
+import { GameState, SinType, PlayerUpgrades } from './types';
+import { CANVAS_WIDTH, PLAYER_MAX_HP, WAVE_DURATION } from './constants';
 import { initAudio, speak } from './utils/audio';
 
 const App: React.FC = () => {
@@ -10,11 +10,12 @@ const App: React.FC = () => {
 
   // HUD State
   const [hp, setHp] = useState(PLAYER_MAX_HP);
-  const [ammo, setAmmo] = useState(PLAYER_MAX_AMMO);
-  const [maxAmmo, setMaxAmmo] = useState(PLAYER_MAX_AMMO);
   const [waveTimer, setWaveTimer] = useState(0);
   const [currentSin, setCurrentSin] = useState<string>('LUST');
   const [score, setScore] = useState(0);
+  const [upgrades, setUpgrades] = useState<PlayerUpgrades>({ 
+    hasSpread: false, hasKnockback: false, hasRapidFire: false, hasSpeed: false 
+  });
 
   const handleGameOver = useCallback((score: number) => {
     setFinalScore(score);
@@ -24,27 +25,29 @@ const App: React.FC = () => {
 
   const handleUpdateStats = useCallback((
     newHp: number, 
-    newAmmo: number, 
-    newMaxAmmo: number, 
     timer: number, 
     sin: string,
-    newScore: number
+    newScore: number,
+    newUpgrades: PlayerUpgrades
   ) => {
-    // Throttle React updates slightly if needed, but modern React handles this okay usually.
-    // For a smoother bar, we update every frame.
     setHp(newHp);
-    setAmmo(newAmmo);
-    setMaxAmmo(newMaxAmmo);
     setWaveTimer(timer);
     setCurrentSin(sin);
     setScore(newScore);
+    // Simple object comparison to avoid re-renders if same (optimization optional but good)
+    setUpgrades(prev => {
+      if (prev.hasSpread === newUpgrades.hasSpread && 
+          prev.hasKnockback === newUpgrades.hasKnockback &&
+          prev.hasRapidFire === newUpgrades.hasRapidFire &&
+          prev.hasSpeed === newUpgrades.hasSpeed) return prev;
+      return { ...newUpgrades };
+    });
   }, []);
 
   const startGame = () => {
     initAudio(); // Initialize audio context on user gesture
     setGameState(GameState.PLAYING);
     setHp(PLAYER_MAX_HP);
-    setAmmo(PLAYER_MAX_AMMO);
     setScore(0);
     speak("Lord, forgive them. For I will not.");
   };
@@ -67,7 +70,7 @@ const App: React.FC = () => {
               <h2 className="text-3xl text-white mb-6">PREPARE FOR JUDGEMENT</h2>
               <div className="space-y-4 text-center text-gray-300 mb-8">
                 <p>WASD to Move • Mouse to Aim & Shoot</p>
-                <p>Survive the 7 Deadly Sins. The cycle repeats.</p>
+                <p>Infinite Ammo. Relics drop when the Sin changes.</p>
               </div>
               <button 
                 onClick={startGame}
@@ -94,7 +97,7 @@ const App: React.FC = () => {
           {/* HUD Overlay */}
           {gameState === GameState.PLAYING && (
             <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-start pointer-events-none z-10">
-              {/* Left: Health & Ammo */}
+              {/* Left: Health & Upgrades */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <div className="w-8 font-bold text-red-500">HP</div>
@@ -107,16 +110,12 @@ const App: React.FC = () => {
                   <span className="text-sm font-mono">{Math.floor(hp)}</span>
                 </div>
                 
-                <div className="flex items-center gap-2">
-                  <div className="w-8 font-bold text-yellow-500">AMMO</div>
-                  <div className="flex gap-1">
-                    {Array.from({ length: maxAmmo }).map((_, i) => (
-                      <div 
-                        key={i} 
-                        className={`w-2 h-4 border border-gray-900 ${i < ammo ? 'bg-yellow-400' : 'bg-gray-700'}`}
-                      />
-                    ))}
-                  </div>
+                {/* Upgrade Icons */}
+                <div className="flex gap-2 pt-2">
+                  {upgrades.hasSpread && <div className="w-8 h-8 bg-blue-500 rounded border border-white flex items-center justify-center text-xs font-bold" title="Spread Shot">III</div>}
+                  {upgrades.hasKnockback && <div className="w-8 h-8 bg-purple-500 rounded border border-white flex items-center justify-center text-xs font-bold" title="Knockback">POW</div>}
+                  {upgrades.hasRapidFire && <div className="w-8 h-8 bg-yellow-400 rounded border border-white flex items-center justify-center text-xs font-bold text-black" title="Rapid Fire">{`>>>`}</div>}
+                  {upgrades.hasSpeed && <div className="w-8 h-8 bg-green-500 rounded border border-white flex items-center justify-center text-xs font-bold" title="Speed">SPD</div>}
                 </div>
               </div>
 
@@ -127,7 +126,7 @@ const App: React.FC = () => {
                   {currentSin}
                 </div>
                 <div className="text-sm text-gray-500 font-mono mt-1">
-                   Next in: {Math.max(0, 30 - waveTimer)}s
+                   Relic in: {Math.max(0, 30 - waveTimer)}s
                 </div>
               </div>
 
@@ -155,7 +154,7 @@ const App: React.FC = () => {
         </div>
         
         <div className="mt-4 text-center text-gray-500 text-sm">
-          <p>Tip: Prioritize fast enemies. Reload when safe.</p>
+          <p>Tip: Stay near the center when the timer ends to grab the Relic.</p>
         </div>
       </div>
     </div>

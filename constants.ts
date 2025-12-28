@@ -4,18 +4,18 @@ export const CANVAS_WIDTH = 800;
 export const CANVAS_HEIGHT = 600;
 
 export const PLAYER_SPEED = 3.5;
+export const PLAYER_SPEED_BOOSTED = 5.5;
 export const PLAYER_MAX_HP = 100;
-export const PLAYER_MAX_AMMO = 12;
-export const RELOAD_TIME = 90; // Frames (approx 1.5s at 60fps)
+
 export const PROJECTILE_SPEED = 10;
-export const FIRE_RATE = 12; // Minimum frames between shots
+export const FIRE_RATE = 12; // Standard frames between shots
+export const RAPID_FIRE_RATE = 6; // Upgraded frames between shots
 
 export const WAVE_DURATION = 30000; // 30 seconds per sin
 
 // PowerUp Config
-export const POWERUP_CHANCE = 0.08; // 8% drop rate
-export const POWERUP_LIFETIME = 600; // 10 seconds before despawn
-export const FURY_DURATION = 300; // 5 seconds of fury
+export const POWERUP_LIFETIME = 1200; // 20 seconds (generous for relics)
+export const FURY_DURATION = 300; // 5 seconds of fury (if we keep fury as a temp mechanics, or we can repurpose it)
 
 export const PREACHER_BARKS = [
   "REPENT!",

@@ -3,41 +3,214 @@ import {
   CANVAS_HEIGHT, 
   CANVAS_WIDTH, 
   PLAYER_SPEED, 
+  PLAYER_SPEED_BOOSTED,
   PLAYER_MAX_HP, 
-  PLAYER_MAX_AMMO, 
   PROJECTILE_SPEED, 
-  RELOAD_TIME,
-  FIRE_RATE,
-  WAVE_DURATION,
-  PREACHER_BARKS,
-  HURT_BARKS,
-  SIN_CONFIG,
-  SIN_ORDER,
-  POWERUP_CHANCE,
-  POWERUP_LIFETIME,
-  FURY_DURATION
+  FIRE_RATE, 
+  RAPID_FIRE_RATE,
+  WAVE_DURATION, 
+  PREACHER_BARKS, 
+  HURT_BARKS, 
+  SIN_CONFIG, 
+  SIN_ORDER, 
+  POWERUP_LIFETIME, 
+  FURY_DURATION 
 } from '../constants';
 import { 
-  GameState, 
   Player, 
   Enemy, 
   Projectile, 
   FloatingText, 
-  Particle,
-  SinType,
-  PowerUp,
-  PowerUpType 
+  Particle, 
+  SinType, 
+  PowerUp, 
+  PowerUpType,
+  PlayerUpgrades
 } from '../types';
 import { playSound, speak } from '../utils/audio';
 
+// --- PIXEL ART ASSET GENERATION ---
+// We define 12x12 pixel art grids. 
+// Keys: '.'=transparent, '#' = main color, 'x' = outline/dark, 'f' = face/skin, 'w' = white
+const SPRITE_SIZE = 12;
+const SCALE = 4; // Render size multiplier
+
+const PIXEL_MAPS: Record<string, string[]> = {
+  PLAYER: [
+    "....xxxx....",
+    "...xxxxxx...",
+    "..xxxxxxxx..",
+    "....ffff....",
+    "...xwwxx....",
+    "..x.xxxx.g..",
+    "..x.xxxx.g..",
+    "..x.xxxx.x..",
+    "..x.xxxx.x..",
+    "..xx....xx..",
+    "..x......x..",
+    "............"
+  ],
+  [SinType.LUST]: [
+    "............",
+    "..##....##..",
+    ".####..####.",
+    ".####..####.",
+    ".##########.",
+    "..########..",
+    "...######...",
+    "...######...",
+    "....####....",
+    ".....##.....",
+    ".....##.....",
+    "............"
+  ],
+  [SinType.GLUTTONY]: [
+    "....xxxx....",
+    "..xx####xx..",
+    ".x########x.",
+    ".x##xxxx##x.",
+    ".x#x....x#x.",
+    ".x#x....x#x.",
+    ".x#x....x#x.",
+    ".x##xxxx##x.",
+    ".x########x.",
+    "..xx####xx..",
+    "....xxxx....",
+    "............"
+  ],
+  [SinType.GREED]: [
+    ".....xx.....",
+    "....x##x....",
+    "...x####x...",
+    "..x######x..",
+    "..x##ww##x..",
+    ".x###ww###x.",
+    ".x###ww###x.",
+    ".x########x.",
+    "..x######x..",
+    "...x####x...",
+    "....xxxx....",
+    "............"
+  ],
+  [SinType.SLOTH]: [
+    "............",
+    "............",
+    "............",
+    "..xxxxxxxx..",
+    ".x########x.",
+    ".x#xx##xx#x.",
+    ".x########x.",
+    ".x########x.",
+    ".x########x.",
+    ".x########x.",
+    "..xxxxxxxx..",
+    "............",
+    "............"
+  ],
+  [SinType.WRATH]: [
+    ".....xx.....",
+    "...xx##xx...",
+    "..x######x..",
+    ".x#x####x#x.",
+    ".x#x####x#x.",
+    ".x########x.",
+    ".x##xxxx##x.",
+    ".x##x##x##x.",
+    "..x######x..",
+    "...xx##xx...",
+    ".....xx.....",
+    "............"
+  ],
+  [SinType.ENVY]: [
+    ".....xx.....",
+    "....x##x....",
+    "...x####x...",
+    "..x##ww##x..",
+    ".x###ww###x.",
+    ".x###xx###x.",
+    ".x########x.",
+    "..x##ww##x..",
+    "...x####x...",
+    "....x##x....",
+    ".....xx.....",
+    "............"
+  ],
+  [SinType.PRIDE]: [
+    ".x..x..x..x.",
+    ".x..x..x..x.",
+    ".##########.",
+    ".##########.",
+    ".##########.",
+    ".##########.",
+    ".##########.",
+    ".##########.",
+    ".##########.",
+    ".##########.",
+    "............",
+    "............"
+  ]
+};
+
+const PALETTES: Record<string, Record<string, string>> = {
+  PLAYER: { x: '#111827', f: '#fca5a5', w: '#f3f4f6', g: '#4b5563' }, // Preacher colors
+  [SinType.LUST]: { '#': '#ec4899' }, // Pink
+  [SinType.GLUTTONY]: { '#': '#22c55e', x: '#14532d' }, // Green
+  [SinType.GREED]: { '#': '#eab308', x: '#000000', w: '#fef08a' }, // Gold
+  [SinType.SLOTH]: { '#': '#60a5fa', x: '#1e3a8a' }, // Blue
+  [SinType.WRATH]: { '#': '#ef4444', x: '#7f1d1d' }, // Red
+  [SinType.ENVY]: { '#': '#a855f7', x: '#581c87', w: '#ffffff' }, // Purple/Eye
+  [SinType.PRIDE]: { '#': '#f97316', x: '#fbbf24' }, // Orange/Crown
+};
+
+const generateSpriteUrl = (key: string): string => {
+  const canvas = document.createElement('canvas');
+  canvas.width = SPRITE_SIZE * SCALE;
+  canvas.height = SPRITE_SIZE * SCALE;
+  const ctx = canvas.getContext('2d');
+  
+  if (!ctx) return '';
+
+  const map = PIXEL_MAPS[key] || PIXEL_MAPS['PLAYER']; // Fallback
+  const palette = PALETTES[key] || PALETTES['PLAYER'];
+
+  // Clear
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Draw
+  map.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      const char = row[x];
+      if (char !== '.' && palette[char]) {
+        ctx.fillStyle = palette[char];
+        ctx.fillRect(x * SCALE, y * SCALE, SCALE, SCALE);
+      }
+    }
+  });
+
+  return canvas.toDataURL('image/png');
+};
+
 interface GameProps {
   onGameOver: (score: number) => void;
-  onUpdateStats: (hp: number, ammo: number, maxAmmo: number, wave: number, sin: string, score: number) => void;
+  onUpdateStats: (hp: number, wave: number, sin: string, score: number, upgrades: PlayerUpgrades) => void;
 }
 
 const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  
+  const spritesRef = useRef<Record<string, HTMLImageElement>>({});
+
+  // Initialize Sprites
+  useEffect(() => {
+    const loadSprite = (key: string) => {
+      const img = new Image();
+      img.src = generateSpriteUrl(key);
+      spritesRef.current[key] = img;
+    };
+
+    loadSprite('PLAYER');
+    Object.values(SinType).forEach(sin => loadSprite(sin));
+  }, []);
+
   // Mutable game state refs (for performance vs React state)
   const gameStateRef = useRef({
     lastFrameTime: 0,
@@ -63,18 +236,20 @@ const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
       id: 'player',
       x: CANVAS_WIDTH / 2,
       y: CANVAS_HEIGHT / 2,
-      radius: 16,
-      color: '#171717', // Neutral 900
+      radius: 20, 
+      color: '#171717', 
       markedForDeletion: false,
       hp: PLAYER_MAX_HP,
       maxHp: PLAYER_MAX_HP,
-      ammo: PLAYER_MAX_AMMO,
-      maxAmmo: PLAYER_MAX_AMMO,
       angle: 0,
-      reloading: false,
-      reloadTimer: 0,
       invulnTimer: 0,
       furyTimer: 0,
+      upgrades: {
+        hasSpread: false,
+        hasKnockback: false,
+        hasRapidFire: false,
+        hasSpeed: false
+      }
     } as Player,
     enemies: [] as Enemy[],
     projectiles: [] as Projectile[],
@@ -109,38 +284,46 @@ const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
         vy: Math.sin(angle) * speed,
         life: 30 + Math.random() * 20,
         color,
-        size: Math.random() * 4 + 2
+        size: Math.random() * 4 + 2,
+        markedForDeletion: false
       });
     }
   };
 
-  // Helper: Spawn PowerUp
-  const spawnPowerUp = (x: number, y: number) => {
-    const rand = Math.random();
-    let type = PowerUpType.HEALTH;
-    let color = '#22c55e'; // Green
+  // Helper: Spawn PowerUp Relic (Wave Clear Reward)
+  const spawnRelic = (x: number, y: number) => {
+    const player = entitiesRef.current.player;
+    // Determine pool of available upgrades (excluding maxed ones)
+    const pool = [];
+    if (!player.upgrades.hasSpread) pool.push(PowerUpType.SPREAD);
+    if (!player.upgrades.hasKnockback) pool.push(PowerUpType.KNOCKBACK);
+    if (!player.upgrades.hasRapidFire) pool.push(PowerUpType.RAPID);
+    if (!player.upgrades.hasSpeed) pool.push(PowerUpType.SPEED);
     
-    if (rand < 0.4) {
-      type = PowerUpType.HEALTH; // 40%
-      color = '#22c55e';
-    } else if (rand < 0.8) {
-      type = PowerUpType.AMMO; // 40%
-      color = '#eab308';
-    } else {
-      type = PowerUpType.FURY; // 20%
-      color = '#ef4444';
+    // Always add heal as an option, but weight it lower if player has upgrades available
+    pool.push(PowerUpType.HEAL);
+
+    const type = pool[Math.floor(Math.random() * pool.length)];
+    let color = '#ffffff';
+
+    switch(type) {
+      case PowerUpType.SPREAD: color = '#3b82f6'; break; // Blue
+      case PowerUpType.KNOCKBACK: color = '#a855f7'; break; // Purple
+      case PowerUpType.RAPID: color = '#facc15'; break; // Yellow
+      case PowerUpType.SPEED: color = '#22c55e'; break; // Green
+      case PowerUpType.HEAL: color = '#ef4444'; break; // Red
     }
 
     entitiesRef.current.powerups.push({
       id: Math.random().toString(),
       x,
       y,
-      radius: 10,
+      radius: 15,
       color,
       markedForDeletion: false,
       type,
       life: POWERUP_LIFETIME,
-      blinkOffset: Math.random() * 100
+      blinkOffset: 0
     });
   };
 
@@ -163,15 +346,23 @@ const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
 
+    // IMPORTANT: Ensure pixel art looks crisp
+    ctx.imageSmoothingEnabled = false;
+
     // --- LOGIC ---
     
     // 1. Wave Management
     const now = Date.now();
     const timeInWave = now - gameStateRef.current.waveStartTime;
     if (timeInWave > WAVE_DURATION) {
+      // WAVE COMPLETE
       gameStateRef.current.waveStartTime = now;
       gameStateRef.current.currentSinIndex = (gameStateRef.current.currentSinIndex + 1) % SIN_ORDER.length;
-      spawnText(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 4, "NEW SIN APPROACHES", '#dc2626', 2);
+      
+      // Spawn Relic at Center
+      spawnRelic(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+      
+      spawnText(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 4, "WAVE CLEARED - RELIC APPEARED", '#eab308', 2);
       playSound('wave');
     }
     const currentSinType = SIN_ORDER[gameStateRef.current.currentSinIndex];
@@ -191,8 +382,9 @@ const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
       const length = Math.sqrt(dx * dx + dy * dy);
       dx /= length;
       dy /= length;
-      player.x += dx * PLAYER_SPEED;
-      player.y += dy * PLAYER_SPEED;
+      const speed = player.upgrades.hasSpeed ? PLAYER_SPEED_BOOSTED : PLAYER_SPEED;
+      player.x += dx * speed;
+      player.y += dy * speed;
     }
 
     // Clamp to screen
@@ -206,52 +398,43 @@ const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
     // Fury Timer
     if (player.furyTimer > 0) player.furyTimer--;
 
-    // Reloading
-    if (player.reloading) {
-      player.reloadTimer--;
-      if (player.reloadTimer <= 0) {
-        player.reloading = false;
-        player.ammo = player.maxAmmo;
-        spawnText(player.x, player.y - 20, "LOADED", '#ffffff');
-        playSound('loaded');
-      }
-    } else if (player.ammo <= 0 && !player.reloading && player.furyTimer <= 0) {
-      // Auto reload if empty and not in fury
-      player.reloading = true;
-      player.reloadTimer = RELOAD_TIME;
-      spawnText(player.x, player.y - 20, "RELOADING...", '#fbbf24');
-      playSound('reload');
-    }
-
     // Shooting
     const isFury = player.furyTimer > 0;
-    const effectiveFireRate = isFury ? Math.max(2, FIRE_RATE / 2) : FIRE_RATE; // Twice as fast in Fury
-    const canShoot = (!player.reloading || isFury) && gameStateRef.current.frameCount % Math.floor(effectiveFireRate) === 0;
+    const baseFireRate = player.upgrades.hasRapidFire ? RAPID_FIRE_RATE : FIRE_RATE;
+    const effectiveFireRate = isFury ? Math.max(2, baseFireRate / 2) : baseFireRate;
+    const canShoot = gameStateRef.current.frameCount % Math.floor(effectiveFireRate) === 0;
     
     if (inputsRef.current.shoot && canShoot) {
-      if (player.ammo > 0 || isFury) {
-        if (!isFury) player.ammo--;
         playSound('shoot');
         
-        // Projectile spread in fury? No, just faster.
-        entitiesRef.current.projectiles.push({
-          id: Math.random().toString(),
-          x: player.x + Math.cos(angle) * 20,
-          y: player.y + Math.sin(angle) * 20,
-          vx: Math.cos(angle) * PROJECTILE_SPEED,
-          vy: Math.sin(angle) * PROJECTILE_SPEED,
-          life: 100, // frames
-          radius: 4,
-          color: isFury ? '#ef4444' : '#fde047', // Red bullets in fury
-          markedForDeletion: false
-        });
+        // Spread Shot Logic
+        const projectileCount = player.upgrades.hasSpread ? 3 : 1;
+        const spreadAngle = 0.25; // Radians (~15 degrees)
+
+        for(let i = 0; i < projectileCount; i++) {
+           let fireAngle = angle;
+           if (projectileCount > 1) {
+             // -spread, 0, +spread
+             fireAngle = angle + (i - 1) * spreadAngle;
+           }
+
+           entitiesRef.current.projectiles.push({
+            id: Math.random().toString(),
+            x: player.x + Math.cos(fireAngle) * 20,
+            y: player.y + Math.sin(fireAngle) * 20,
+            vx: Math.cos(fireAngle) * PROJECTILE_SPEED,
+            vy: Math.sin(fireAngle) * PROJECTILE_SPEED,
+            life: 100, // frames
+            radius: 4,
+            color: isFury ? '#ef4444' : '#fde047',
+            markedForDeletion: false,
+            isKnockback: player.upgrades.hasKnockback
+          });
+        }
+
         // Small recoil
         player.x -= Math.cos(angle) * 2;
         player.y -= Math.sin(angle) * 2;
-      } else {
-        // Empty click logic
-        playSound('empty');
-      }
     }
 
     // Spawning Enemies
@@ -294,22 +477,28 @@ const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
       if (dist < player.radius + p.radius) {
         p.markedForDeletion = true;
         playSound('pickup');
-        spawnParticles(p.x, p.y, p.color, 10);
+        spawnParticles(p.x, p.y, p.color, 15);
         
         switch(p.type) {
-          case PowerUpType.HEALTH:
-            player.hp = Math.min(player.maxHp, player.hp + 30);
-            spawnText(player.x, player.y - 20, "+30 HP", '#22c55e');
+          case PowerUpType.HEAL:
+            player.hp = player.maxHp; // Full Heal
+            spawnText(player.x, player.y - 20, "DIVINE HEALING", '#ef4444');
             break;
-          case PowerUpType.AMMO:
-            player.ammo = player.maxAmmo;
-            player.reloading = false; // Cancel reload if active
-            spawnText(player.x, player.y - 20, "AMMO FULL", '#eab308');
+          case PowerUpType.SPREAD:
+            player.upgrades.hasSpread = true;
+            spawnText(player.x, player.y - 20, "TRINITY SHOT", '#3b82f6', 1.5);
             break;
-          case PowerUpType.FURY:
-            player.furyTimer = FURY_DURATION;
-            player.ammo = player.maxAmmo; // Free refill
-            spawnText(player.x, player.y - 20, "HOLY FURY!", '#ef4444', 1.5);
+          case PowerUpType.KNOCKBACK:
+            player.upgrades.hasKnockback = true;
+            spawnText(player.x, player.y - 20, "FORCE OF GOD", '#a855f7', 1.5);
+            break;
+          case PowerUpType.RAPID:
+            player.upgrades.hasRapidFire = true;
+            spawnText(player.x, player.y - 20, "RIGHTEOUS SPEED", '#facc15', 1.5);
+            break;
+          case PowerUpType.SPEED:
+            player.upgrades.hasSpeed = true;
+            spawnText(player.x, player.y - 20, "SWIFT JUSTICE", '#22c55e', 1.5);
             break;
         }
       }
@@ -348,17 +537,22 @@ const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
           p.markedForDeletion = true;
           spawnParticles(p.x, p.y, p.color, 3);
           playSound('hit');
+
+          // Knockback
+          if (p.isKnockback) {
+             e.x += p.vx * 1.5; // Push back significantly
+             e.y += p.vy * 1.5;
+          } else {
+             // Standard tiny stagger
+             e.x += p.vx * 0.1;
+             e.y += p.vy * 0.1;
+          }
           
           if (e.hp <= 0) {
             e.markedForDeletion = true;
             gameStateRef.current.score += 100;
             spawnParticles(e.x, e.y, e.color, 10);
             playSound('die');
-            
-            // Chance to drop powerup
-            if (Math.random() < POWERUP_CHANCE) {
-              spawnPowerUp(e.x, e.y);
-            }
             
             // Foul Mouth on Kill (Chance)
             if (Math.random() < 0.15) {
@@ -371,7 +565,7 @@ const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
       });
 
       // Enemy vs Player
-      if (!player.reloading && player.invulnTimer <= 0) { 
+      if (player.invulnTimer <= 0) { 
           const collDist = e.radius + player.radius;
           if (dist < collDist) {
              player.hp -= e.damage;
@@ -431,67 +625,40 @@ const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
 
     // Draw PowerUps
     entitiesRef.current.powerups.forEach(p => {
-        // Blink if despawning
+        // Blink if despawning (Relics last a long time though)
         if (p.life < 120 && Math.floor((gameStateRef.current.frameCount + p.blinkOffset) / 5) % 2 === 0) {
             return;
         }
 
         ctx.fillStyle = p.color;
-        ctx.strokeStyle = '#000';
+        ctx.strokeStyle = '#fff';
         ctx.lineWidth = 2;
         
-        // Shape based on type
-        switch(p.type) {
-            case PowerUpType.HEALTH:
-                // Cross
-                ctx.beginPath();
-                ctx.rect(p.x - 4, p.y - 10, 8, 20);
-                ctx.rect(p.x - 10, p.y - 4, 20, 8);
-                ctx.fill();
-                ctx.stroke();
-                break;
-            case PowerUpType.AMMO:
-                // Box
-                ctx.beginPath();
-                ctx.rect(p.x - 8, p.y - 8, 16, 16);
-                ctx.fill();
-                ctx.stroke();
-                // 'A' label
-                ctx.fillStyle = 'black';
-                ctx.font = 'bold 12px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('A', p.x, p.y);
-                break;
-            case PowerUpType.FURY:
-                // Star
-                ctx.beginPath();
-                const spikes = 5;
-                const outerRadius = 12;
-                const innerRadius = 6;
-                let rot = Math.PI / 2 * 3;
-                let cx = p.x;
-                let cy = p.y;
-                let step = Math.PI / spikes;
+        ctx.beginPath();
+        // Draw Shield-like shape for relics
+        const s = p.radius;
+        ctx.moveTo(p.x - s, p.y - s);
+        ctx.lineTo(p.x + s, p.y - s);
+        ctx.lineTo(p.x + s, p.y);
+        ctx.lineTo(p.x, p.y + s*1.3);
+        ctx.lineTo(p.x - s, p.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
 
-                ctx.moveTo(cx, cy - outerRadius);
-                for (let i = 0; i < spikes; i++) {
-                    cx = p.x + Math.cos(rot) * outerRadius;
-                    cy = p.y + Math.sin(rot) * outerRadius;
-                    ctx.lineTo(cx, cy);
-                    rot += step;
+        // Label
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        let label = "?";
+        if (p.type === PowerUpType.HEAL) label = "+";
+        if (p.type === PowerUpType.SPREAD) label = "III";
+        if (p.type === PowerUpType.KNOCKBACK) label = "POW";
+        if (p.type === PowerUpType.RAPID) label = ">>>";
+        if (p.type === PowerUpType.SPEED) label = "SPD";
 
-                    cx = p.x + Math.cos(rot) * innerRadius;
-                    cy = p.y + Math.sin(rot) * innerRadius;
-                    ctx.lineTo(cx, cy);
-                    rot += step;
-                }
-                ctx.lineTo(p.x, p.y - outerRadius);
-                ctx.closePath();
-                ctx.fill();
-                ctx.stroke();
-                break;
-        }
+        ctx.fillText(label, p.x, p.y - 2);
     });
 
     // Draw Particles
@@ -506,35 +673,41 @@ const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
 
     // Draw Enemies
     entitiesRef.current.enemies.forEach(e => {
-        ctx.fillStyle = e.color;
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 2;
-        
-        ctx.beginPath();
-        if (e.sides === 0) {
-            ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
-        } else if (e.sides) {
-            // Draw polygon
-            const step = (Math.PI * 2) / e.sides;
-            // Rotate shape slowly
-            const rot = gameStateRef.current.frameCount * 0.05;
-            for (let i = 0; i < e.sides; i++) {
-                const tx = e.x + Math.cos(rot + step * i) * e.radius;
-                const ty = e.y + Math.sin(rot + step * i) * e.radius;
-                if (i === 0) ctx.moveTo(tx, ty);
-                else ctx.lineTo(tx, ty);
-            }
-            ctx.closePath();
-        }
-        ctx.fill();
-        ctx.stroke();
+        const sprite = spritesRef.current[e.type];
+        // Calculate angle to look at player
+        const lookAngle = Math.atan2(player.y - e.y, player.x - e.x);
 
-        // HP bar for heavy enemies
-        if (e.hp > 20) {
-            ctx.fillStyle = 'red';
-            ctx.fillRect(e.x - 10, e.y - e.radius - 10, 20, 4);
-            ctx.fillStyle = '#0f0';
-            ctx.fillRect(e.x - 10, e.y - e.radius - 10, 20 * (e.hp / (SIN_CONFIG[e.type].hp)), 4);
+        if (sprite && sprite.complete && sprite.naturalWidth !== 0) {
+            // Shadow (simple circle for performance)
+            ctx.save();
+            ctx.translate(e.x + 4, e.y + 4);
+            ctx.globalAlpha = 0.4;
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(0, 0, e.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            // Draw Sprite
+            ctx.save();
+            ctx.translate(e.x, e.y);
+            // Flip if looking left
+            if (player.x < e.x) {
+                ctx.scale(-1, 1);
+            }
+            
+            // Draw image centered
+            const drawSize = SPRITE_SIZE * SCALE;
+            ctx.drawImage(sprite, -drawSize/2, -drawSize/2, drawSize, drawSize);
+            ctx.restore();
+            
+            // Draw HP bar for heavy enemies (overlay on sprite)
+            if (e.hp > 20) {
+                ctx.fillStyle = 'red';
+                ctx.fillRect(e.x - 10, e.y - e.radius - 12, 20, 4);
+                ctx.fillStyle = '#0f0';
+                ctx.fillRect(e.x - 10, e.y - e.radius - 12, 20 * (e.hp / (SIN_CONFIG[e.type].hp)), 4);
+            }
         }
     });
 
@@ -547,17 +720,37 @@ const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
     });
 
     // Draw Player
+    const playerSprite = spritesRef.current['PLAYER'];
+    
     ctx.save();
     ctx.translate(player.x, player.y);
-    ctx.rotate(player.angle);
+    ctx.rotate(player.angle + Math.PI/2); // Adjustment for sprite facing UP
 
-    // Body (Black Square)
-    ctx.fillStyle = player.color;
-    ctx.fillRect(-player.radius, -player.radius, player.radius * 2, player.radius * 2);
-    
-    // Collar (White Rect)
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(-5, -12, 10, 4);
+    if (playerSprite && playerSprite.complete && playerSprite.naturalWidth !== 0) {
+        // Shadow
+        ctx.save();
+        ctx.translate(4, 4); // Relative shadow offset
+        ctx.globalAlpha = 0.4;
+        ctx.fillStyle = 'black';
+        ctx.beginPath();
+        ctx.arc(0, 0, player.radius, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+
+        // Draw Player Sprite
+        const drawSize = SPRITE_SIZE * SCALE;
+        ctx.drawImage(playerSprite, -drawSize/2, -drawSize/2, drawSize, drawSize);
+    } 
+
+    // Muzzle Flash
+    const isFuryMuzzle = player.furyTimer > 0;
+    if (gameStateRef.current.frameCount % (isFuryMuzzle ? FIRE_RATE/2 : FIRE_RATE) < 2 && inputsRef.current.shoot) {
+        ctx.fillStyle = isFuryMuzzle ? '#ef4444' : '#fef08a';
+        ctx.beginPath();
+        // Muzzle pos 
+        ctx.arc(10, -30, 8 + Math.random()*4, 0, Math.PI*2);
+        ctx.fill();
+    }
 
     // Fury Aura
     if (player.furyTimer > 0) {
@@ -566,21 +759,6 @@ const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
         ctx.beginPath();
         ctx.arc(0, 0, player.radius + 6 + Math.sin(gameStateRef.current.frameCount * 0.5) * 2, 0, Math.PI * 2);
         ctx.stroke();
-    }
-
-    // Hands/Gun
-    ctx.fillStyle = '#374151'; // Gray gun
-    ctx.fillRect(10, 2, 12, 6); // Right hand gun
-    ctx.fillStyle = '#171717'; 
-    ctx.fillRect(10, -10, 6, 6); // Left hand 
-
-    // Muzzle Flash
-    const isFuryMuzzle = player.furyTimer > 0;
-    if (gameStateRef.current.frameCount % (isFuryMuzzle ? FIRE_RATE/2 : FIRE_RATE) < 2 && inputsRef.current.shoot && (player.ammo >= 0 || isFuryMuzzle) && (!player.reloading || isFuryMuzzle)) {
-        ctx.fillStyle = isFuryMuzzle ? '#ef4444' : '#fef08a';
-        ctx.beginPath();
-        ctx.arc(25, 5, 8 + Math.random()*4, 0, Math.PI*2);
-        ctx.fill();
     }
 
     ctx.restore();
@@ -606,14 +784,13 @@ const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
         ctx.fillText(t.text, t.x, t.y);
     });
 
-    // Update UI Stats (Throttled slightly or just every frame, simple logic is fine)
+    // Update UI Stats
     onUpdateStats(
         player.hp, 
-        (player.furyTimer > 0) ? player.maxAmmo : player.ammo, // Show full ammo visually during fury
-        player.maxAmmo, 
         Math.floor((now - gameStateRef.current.waveStartTime) / 1000), 
         sinStats.label,
-        gameStateRef.current.score
+        gameStateRef.current.score,
+        player.upgrades
     );
 
     requestAnimationFrame(loop);
@@ -650,7 +827,6 @@ const Game: React.FC<GameProps> = ({ onGameOver, onUpdateStats }) => {
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-    // Attach mouse events to window to prevent getting stuck if dragging out of canvas
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mouseup', handleMouseUp);

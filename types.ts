@@ -18,16 +18,20 @@ export interface Entity {
   markedForDeletion: boolean;
 }
 
+export interface PlayerUpgrades {
+  hasSpread: boolean;
+  hasKnockback: boolean;
+  hasRapidFire: boolean;
+  hasSpeed: boolean;
+}
+
 export interface Player extends Entity {
   hp: number;
   maxHp: number;
-  ammo: number;
-  maxAmmo: number;
   angle: number;
-  reloading: boolean;
-  reloadTimer: number;
   invulnTimer: number;
-  furyTimer: number; // For the special powerup
+  furyTimer: number; // Temporarily boosts all stats
+  upgrades: PlayerUpgrades;
 }
 
 export enum SinType {
@@ -52,6 +56,7 @@ export interface Projectile extends Entity {
   vx: number;
   vy: number;
   life: number;
+  isKnockback: boolean;
 }
 
 export interface FloatingText {
@@ -77,9 +82,11 @@ export interface Particle {
 }
 
 export enum PowerUpType {
-  HEALTH = 'HEALTH',
-  AMMO = 'AMMO',
-  FURY = 'FURY'
+  HEAL = 'HEAL',          // Restores HP
+  SPREAD = 'SPREAD',      // Permanent: Triple shot
+  KNOCKBACK = 'KNOCKBACK',// Permanent: High pushback
+  RAPID = 'RAPID',        // Permanent: Fast fire rate
+  SPEED = 'SPEED'         // Permanent: Move speed
 }
 
 export interface PowerUp extends Entity {
